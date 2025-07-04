@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Color Match Game</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Arial', sans-serif;
+      background: linear-gradient(to bottom, #fdfbfb, #ebedee);
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 0;
+      width: 100%;
+      text-align: center;
+      font-size: 20px;
+      font-weight: bold;
+      z-index: 10;
+    }
+    #keyImage {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      height: auto;
+      width: 400px;
+    }
+    canvas {
+      display: block;
+      margin: 60px auto 0;
+      border: 2px solid #333;
+      background-color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+
+<div id="info">
+  Score: <span id="score">0</span> |
+  Best: <span id="best">0</span> |
+  Speed: <span id="speed">1.0</span>
+</div>
+
+<canvas id="gameCanvas" width="400" height="600"></canvas>
+<img id="keyImage" src="key-guide.png" alt="Key Guide">
+
+<audio id="breakSound" src="break.mp3"></audio>
+<audio id="failSound" src="fail.mp3"></audio>
+<audio id="bgMusic" src="bg.mp3" loop></audio>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  let scoreEl = document.getElementById('score');
+  let bestEl = document.getElementById('best');
+  let speedEl = document.getElementById('speed');
+  const breakSound = document.getElementById('breakSound');
+  const failSound = document.getElementById('failSound');
+  const bgMusic = document.getElementById('bgMusic');
+
+  const colors = ['red', 'blue', 'yellow', 'green'];
+  let currentColorIndex = 0;
+
+  const player = {
+    x: 200,
+    y: 500,
+    radius: 20,
+    get color() {
+      return colors[currentColorIndex];
+    }
+  };
+
+  let obstacles = [];
+  let speed = 1;
+  let score = 0;
+  let bestScore = parseInt(localStorage.getItem('bestScore') || 0);
+  let gameOver = false;
+  let gameStarted = false;
+
+  bestEl.textContent = bestScore;
+
+  document.addEventListener('keydown', (e) => {
+    if (!gameStarted && e.key.toLowerCase() === 's') {
+      gameStarted = true;
+      bgMusic.volume = 0.4;
+      bgMusic.play();
+      update();
+      return;
+    }
+
+    if (!gameStarted || gameOver) {
+      if (gameOver && e.key.toLowerCase() === 'r') {
+        restartGame();
+      }
+      return;
+    }
+
+    if (e.key === '1') currentColorIndex = 0;
+    if (e.key === '2') currentColorIndex = 1;
+    if (e.key === '3') currentColorIndex = 2;
+    if (e.key === '4') currentColorIndex = 3;
+  });
+
+  function spawnObstacle() {
+    const last = obstacles[obstacles.length - 1];
+    if (last && last.y < 100) return;
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    obstacles.push({
+      y: 0,
+      color: color,
+      breaking: false,
+      breakFrames: 0,
+      offset: 30
+    });
+  }
+
+  function drawPlayer() {
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fillStyle = player.color;
+    ctx.fill();
+    ctx.closePath();
+  }
+
+  function drawObstacle(obs) {
+    const width = 100;
+    const height = 20;
+    const x = canvas.width / 2 - width / 2;
+
+    if (obs.breaking) {
+      const offset = obs.offset;
+      obs.offset += 4;
+
+      ctx.fillStyle = obs.color;
+      ctx.fillRect(x - offset, obs.y, width / 2, height);
+      ctx.fillRect(x + width / 2 + offset, obs.y, width / 2, height);
+    } else {
+      ctx.fillStyle = obs.color;
+      ctx.fillRect(x, obs.y, width, height);
+    }
+  }
+
+  function update() {
+    if (gameOver) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawPlayer();
+
+    if (Math.random() < 0.02) {
+      spawnObstacle();
+    }
+
+    for (let i = 0; i < obstacles.length; i++) {
+      const obs = obstacles[i];
+
+      obs.y += obs.breaking ? speed * 0.5 : speed;
+      drawObstacle(obs);
+
+      if (
+        !obs.breaking &&
+        obs.y + 20 >= player.y - player.radius &&
+        obs.y <= player.y + player.radius
+      ) {
+        if (obs.color === player.color) {
+          obs.breaking = true;
+          obs.breakFrames = 15;
+          obs.offset = 0;
+          breakSound.currentTime = 0;
+          breakSound.play();
+
+          score++;
+          scoreEl.textContent = score;
+          speed += 0.2;
+          speedEl.textContent = speed.toFixed(1);
+          if (score > bestScore) {
+            bestScore = score;
+            localStorage.setItem('bestScore', bestScore);
+            bestEl.textContent = bestScore;
+          }
+        } else {
+          failSound.currentTime = 0;
+          failSound.play();
+          gameOver = true;
+          drawGameOver();
+          return;
+        }
+      }
+
+      if (obs.breaking && obs.breakFrames-- <= 0) {
+        obstacles.splice(i, 1);
+        i--;
+      } else if (!obs.breaking && obs.y > canvas.height) {
+        obstacles.splice(i, 1);
+        i--;
+      }
+    }
+
+    requestAnimationFrame(update);
+  }
+
+  function drawGameOver() {
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "white";
+    ctx.font = "36px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 20);
+    ctx.font = "20px Arial";
+    ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 10);
+    ctx.fillText("Press R to restart", canvas.width / 2, canvas.height / 2 + 40);
+  }
+
+  function restartGame() {
+    obstacles = [];
+    currentColorIndex = 0;
+    score = 0;
+    speed = 1;
+    scoreEl.textContent = "0";
+    speedEl.textContent = speed.toFixed(1);
+    gameOver = false;
+    bgMusic.currentTime = 0;
+    bgMusic.play();
+    update();
+  }
+
+  // Initial message
+  ctx.font = "28px Arial";
+  ctx.fillStyle = "gray";
+  ctx.textAlign = "center";
+  ctx.fillText("Press S to start", canvas.width / 2, canvas.height / 2);
+</script>
+
+</body>
+</html>
